@@ -1,0 +1,14 @@
+{{- if .Values.midpoint.schema.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "midpoint.fullname" . }}-schema-config
+  labels:
+    app: {{ template "midpoint.name" . }}
+    chart: {{ template "midpoint.chart" . }}
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+data:
+  schema.xsd: |
+{{ .Values.midpoint.schema.config  | indent 4 }}
+{{- end }}

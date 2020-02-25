@@ -1,0 +1,200 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ template "midpoint.fullname" . }}
+  labels:
+    app: {{ template "midpoint.name" . }}
+    chart: {{ template "midpoint.chart" . }}
+    component: {{ .Values.midpoint.name }}
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+{{- if .Values.midpoint.labels }}
+{{ toYaml .Values.midpoint.labels | indent 4 }}
+{{- end }}
+spec:
+  serviceName: {{ template "midpoint.name" . }}
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: {{ template "midpoint.name" . }}
+      role: {{ template "midpoint.name" . }}
+      release: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ template "midpoint.name" . }}
+        chart: {{ template "midpoint.chart" . }}
+        heritage: {{ .Release.Service }}
+        role: {{ template "midpoint.name" . }}
+        component: {{ .Values.midpoint.name }}
+        release: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ template "midpoint.serviceAccountName" . }}
+      securityContext:
+        runAsUser: {{ .Values.midpoint.uid }}
+        fsGroup: {{ .Values.midpoint.uid }}
+      initContainers:
+    {{- if .Values.midpoint.keystore.enabled }}
+    {{- range .Values.midpoint.keystore.certificates }}
+      - name: inject-certificates-{{ lower .name }}
+        image: "{{ $.Values.initCertificatesImage }}"
+        securityContext:
+          allowPrivilegeEscalation: true
+          runAsUser: 0
+        command:
+          - "bash"
+          - "-c"
+          - >
+            echo importing certificate;
+            ls -al /opt/midpoint/var;
+            ls -al /certs;
+            cat /certs/certificate.crt;
+            if [[ ! -f /opt/midpoint/var/keystore.jceks ]]; then
+              keytool -genseckey -alias default -keystore /opt/midpoint/var/keystore.jceks -storetype jceks -storepass {{ $.Values.midpoint.keystore.password }} -keyalg AES -keysize 128 -keypass midpoint 2>/dev/null;
+            fi;
+            keytool -keystore /opt/midpoint/var/keystore.jceks -storetype jceks -storepass {{ $.Values.midpoint.keystore.password }} -list -v 2>/dev/null;
+            if [[ ! $(keytool -keystore /opt/midpoint/var/keystore.jceks -storetype jceks -storepass {{ $.Values.midpoint.keystore.password }} -list -v 2>/dev/null | grep 'Alias name:' | grep -i {{ .name }}) ]]; then
+              keytool -keystore /opt/midpoint/var/keystore.jceks -storetype jceks -storepass {{ $.Values.midpoint.keystore.password }} -import -alias {{ .name }} -trustcacerts -file /certs/certificate.crt -noprompt 2>/dev/null;
+              echo certificate imported;
+            fi;
+            chown 0:0 /opt/midpoint/var/keystore.jceks;
+            chmod 660 /opt/midpoint/var/keystore.jceks;
+        volumeMounts:
+          - name: midpoint-home
+            mountPath: /opt/midpoint/var
+          - name: keystore-config
+            mountPath: /certs/certificate.crt
+            subPath: {{ .name }}
+
+    {{- end }}
+    {{- end }}
+    {{- if .Values.waitForDatabase }}
+      - name: "wait-for-db"
+        image: "{{ .Values.initContainerImage }}"
+        command:
+        - 'sh'
+        - '-c'
+        - >
+      {{- if .Values.postgresql.enabled }}
+          until nc -z -w 2 {{ .Release.Name }}-postgresql {{ .Values.postgresql.service.port }} && echo database ok; do
+      {{- else }}
+        {{- if and .Values.database.host .Values.database.port }}
+          until nc -z -w 2 {{ .Values.database.host }} {{ .Values.database.port }} && echo database ok; do
+        {{- else }}
+          until true; do
+        {{- end }}
+      {{- end }}
+            sleep 2;
+          done;
+    {{- end }}
+      containers:
+      - name: {{ .Values.midpoint.name }}
+        image: '{{ .Values.midpoint.image.repository }}:{{ default .Chart.AppVersion .Values.midpoint.image.version }}'
+        imagePullPolicy: {{ .Values.midpoint.image.pullPolicy }}
+        securityContext:
+          allowPrivilegeEscalation: false
+        env:
+      {{- if .Values.postgresql.enabled }}
+          - name: REPO_DATABASE_TYPE
+            value: 'postgresql'
+          - name: REPO_HOST
+            value: '{{ .Release.Name }}-postgresql'
+          - name: REPO_USER
+            value: midpoint
+          - name: REPO_PASSWORD_FILE
+            value: /secrets/db
+      {{- end }}
+          - name: MP_KEYSTORE_PASSWORD_FILE
+            value: /secrets/keystore
+      {{- if .Values.midpoint.keystore.enabled }}
+          - name: MP_JAVA_OPTS
+            value: >-
+              -Djavax.net.ssl.trustStore=/opt/midpoint/var/keystore.jceks
+              -Djavax.net.ssl.trustStoreType=jceks -server -Xms4096m -Xmx4096m
+      {{- end }}
+
+{{- with .Values.midpoint.extraEnvironmentVariables }}
+{{ tpl (toYaml .) $ | indent 8 }}
+{{- end }}
+        ports:
+        - containerPort: {{ .Values.midpoint.internalPort }}
+          protocol: TCP
+          name: http
+
+        volumeMounts:
+      {{- if .Values.midpoint.persistence.enabled }}
+        - name: midpoint-home
+          mountPath: /opt/midpoint/var
+      {{- end }}
+        - mountPath: /secrets/db
+          subPath: postgresql-password
+          name: midpoint-secret-db
+        - mountPath: /secrets/keystore
+          subPath: keystore-password
+          name: midpoint-secret-keystore
+      {{- if and .Values.midpoint.schema .Values.midpoint.schema.enabled }}
+        - name: schema-config
+          mountPath: "/opt/midpoint/var/schema/schema.xsd"
+          subPath: schema.xsd
+      {{- end }}
+      {{- if .Values.midpoint.customVolumeMounts }}
+{{ tpl .Values.midpoint.customVolumeMounts . | indent 8 }}
+      {{- end }}
+        resources: {}
+    {{- with .Values.midpoint.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.midpoint.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.midpoint.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+      volumes:
+      {{- if .Values.midpoint.schema.enabled }}
+        - name: schema-config
+          configMap:
+            name: {{ template "midpoint.fullname" . }}-schema-config
+      {{- end }}
+      {{- if .Values.midpoint.keystore.enabled }}
+        - name: keystore-config
+          secret:
+            secretName: {{ template "midpoint.fullname" . }}-keystore-config
+      {{- end }}
+        - name: midpoint-secret-db
+          secret:
+            secretName: {{ template "midpoint.fullname" . }}-postgresql
+            items:
+              - key: postgresql-password
+                path: postgresql-password
+        - name: midpoint-secret-keystore
+          secret:
+            secretName: {{ template "midpoint.fullname" . }}
+            items:
+              - key: keystore-password
+                path: keystore-password
+
+{{- with .Values.midpoint.persistence }}
+  {{- if and .enabled (not .existingClaim) }}
+  volumeClaimTemplates:
+  - metadata:
+      name: midpoint-home
+    spec:
+      {{- if .storageClass }}
+      {{- if (eq "-" .storageClass) }}
+      storageClassName: ""
+      {{- else }}
+      storageClassName: "{{ .storageClass }}"
+      {{- end }}
+      {{- end }}
+      accessModes: [ "{{ .accessMode }}" ]
+      resources:
+        requests:
+          storage: {{ .size }}
+  {{- end }}
+{{- end }}

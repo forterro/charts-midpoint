@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "midpoint.fullname" . }}
+  labels:
+    app: {{ template "midpoint.name" . }}
+    chart: {{ template "midpoint.chart" . }}
+    component: {{ .Values.midpoint.name }}
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+{{- if .Values.midpoint.service.annotations }}
+  annotations:
+{{ toYaml .Values.midpoint.service.annotations | indent 4 }}
+{{- end }}
+spec:
+  type: {{ .Values.midpoint.service.type }}
+{{- if .Values.midpoint.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+{{ toYaml .Values.midpoint.service.loadBalancerSourceRanges | indent 4 }}
+{{- end }}
+  ports:
+  - port: {{ .Values.midpoint.externalPort }}
+    targetPort: {{ .Values.midpoint.internalPort }}
+    protocol: TCP
+    name: http
+  selector:
+    app: {{ template "midpoint.name" . }}
+    component: "{{ .Values.midpoint.name }}"
+    release: {{ .Release.Name }}

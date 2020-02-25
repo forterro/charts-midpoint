@@ -1,0 +1,164 @@
+# Default values for midpoint.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+initContainerImage: "alpine:3.10"
+
+initCertificatesImage: "lucidworks/keytool-utils:5.0.2"
+
+replicaCount: 1
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name:
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  annotations:
+    # kubernetes.io/ingress.class: traefik
+    # kubernetes.io/tls-acme: "true"
+  labels: {}
+  hosts: []
+  path: /
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+  additionalRules: []
+
+networkpolicy:
+  # Allows all ingress and egress
+  - name: midpoint
+    podSelector:
+      matchLabels:
+        app: midpoint
+    egress:
+    - {}
+    ingress:
+    - {}
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+midpoint:
+  name: midpoint
+  uid: 1000
+
+  image:
+    repository: evolveum/midpoint
+    pullPolicy: IfNotPresent
+
+  externalPort: 8080
+  internalPort: 8080
+
+  persistence:
+    enabled: false
+    #storageClass:
+    #accessMode: ReadWriteMany
+    #size: 10Gi
+  resources: {}
+  nodeSelector: {}
+  extraEnvironmentVariables: []
+
+  service:
+    name: midpoint
+    type: ClusterIP
+    loadBalancerSourceRanges: []
+    annotations: {}
+
+  schema:
+    enabled: false
+    config: |
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <!--
+          ~ Copyright (c) 2010-2019 Evolveum and contributors
+          ~
+          ~ This work is dual-licensed under the Apache License 2.0
+          ~ and European Union Public License. See LICENSE file for details.
+          -->
+        <xsd:schema elementFormDefault="qualified"
+                    targetNamespace="http://midpoint.evolveum.com/xml/ns/samples/forterro"
+                    xmlns:tns="http://midpoint.evolveum.com/xml/ns/samples/forterro"
+                    xmlns:c="http://midpoint.evolveum.com/xml/ns/public/common/common-3"
+                    xmlns:a="http://prism.evolveum.com/xml/ns/public/annotation-3"
+                    xmlns:t="http://prism.evolveum.com/xml/ns/public/types-3"
+                    xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+
+            <xsd:import namespace="http://prism.evolveum.com/xml/ns/public/types-3"/>
+
+          ...
+
+        </xsd:schema>
+
+  keystore:
+    enabled: false
+    password: changeit
+    certificates: []
+      #- name: # Certificate name (no special chars, no spaces, ...)
+      #  certificate: |
+            # -----BEGIN CERTIFICATE-----
+            # ...
+            # -----END CERTIFICATE-----
+postgresql:
+  enabled: true
+  image:
+    registry: docker.bintray.io
+    repository: bitnami/postgresql
+    tag: 9.6.15-debian-9-r91
+    pullPolicy: IfNotPresent
+
+  postgresqlUsername: midpoint
+  postgresqlPassword: ""
+  postgresqlDatabase: midpoint
+  postgresqlConfiguration:
+    listenAddresses: "'*'"
+    maxConnections: "1500"
+  persistence:
+    enabled: false
+    # storageClass:
+    # size: 50Gi
+  service:
+    port: 5432
+  resources: {}
+  nodeSelector: {}
+
+waitForDatabase: true
